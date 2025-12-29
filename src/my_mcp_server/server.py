@@ -8,10 +8,15 @@ import platform
 from datetime import datetime
 from mcp.server.fastmcp import FastMCP
 import sqlite3
+import re
 
 # 1. 创建 MCP 服务实例
 #    "我的学习服务" 是服务名称，会显示在客户端中
 mcp = FastMCP("我的学习服务")
+
+# ============ Skill 发现器配置 ============
+SKILLS_BASE_PATH = r'D:\桌面\mcp\.claude\skills'
+AGENTS_MD_PATH = r'D:\桌面\mcp\AGENTS.md'
 
 
 # ============ Resources（资源）============
@@ -353,7 +358,73 @@ def get_canvas_design_guide(design_request: str) -> str:
 请根据以上指南，为用户创建「{design_request}」的视觉艺术作品。
 """
 
+def load_skills_from_agents_md():
+    """
+    从 AGENTS.md 解析 skill 列表
+    返回: [{name, description}, ...]
+    """
+    with open(AGENTS_MD_PATH, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    skills = []
+    # 使用正则匹配 <skill>...</skill> 块
+    pattern = r'<skill>\s*<name>(.*?)</name>\s*<description>(.*?)</description>'
+    matches = re.findall(pattern, content, re.DOTALL)
+    
+    for name, description in matches:
+        skills.append({
+            'name': name.strip(),
+            'description': description.strip().strip('"')
+        })
+    
+    return skills
 
+@mcp.tool()
+def list_all_skills() -> str:
+    """
+    列出所有可用的 Claude Skills 及其描述
+    
+    使用场景：
+    - 用户想知道有哪些工具/技能可用
+    - 需要选择合适的 skill 来完成任务
+    - 查看所有能力列表
+    
+    Returns:
+        所有 skill 的名称和描述列表
+    """
+    skills = load_skills_from_agents_md()
+    
+    result = "## 可用的 Skills 列表\n\n"
+    for skill in skills:
+        result += f"### {skill['name']}\n{skill['description']}\n\n"
+    
+    result += "\n使用 `get_skill_guide(skill_name)` 获取具体 skill 的完整使用指南。"
+    return result
+
+
+@mcp.tool()
+def get_skill_guide(skill_name: str) -> str:
+    """
+    获取指定 skill 的完整使用指南（SKILL.md 内容）
+    
+    Args:
+        skill_name: skill 名称（如 "docx", "frontend-design", "canvas-design"）
+    
+    Returns:
+        该 skill 的完整 SKILL.md 指南内容
+    """
+    skill_md_path = os.path.join(SKILLS_BASE_PATH, skill_name, 'SKILL.md')
+    
+    if not os.path.exists(skill_md_path):
+        # 列出可用的 skill 名称
+        available = [d for d in os.listdir(SKILLS_BASE_PATH) 
+                     if os.path.isdir(os.path.join(SKILLS_BASE_PATH, d))]
+        return f"错误：skill '{skill_name}' 不存在。\n\n可用的 skills: {', '.join(available)}"
+    
+    with open(skill_md_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    return f"## {skill_name} 使用指南\n\n{content}"
 
 
 # 3. 启动服务的入口
